@@ -54,30 +54,53 @@ def enhance_graph(image):
     # Apply slight Gaussian blur to reduce noise
     blurred = cv2.GaussianBlur(gray, (3, 3), 0)
     
-    # Apply adaptive thresholding
+    # Apply adaptive thresholding to separate text and lines
     thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
                                    cv2.THRESH_BINARY, 11, 2)
     
-    # Invert the image
-    thresh = 255 - thresh
+    # Create a mask for text and lines
+    text_line_mask = cv2.bitwise_not(thresh)
     
-    # Slight dilation to enhance lines
+    # Dilate the text and line mask slightly to ensure full coverage
     kernel = np.ones((2,2), np.uint8)
-    dilated = cv2.dilate(thresh, kernel, iterations=1)
+    text_line_mask = cv2.dilate(text_line_mask, kernel, iterations=1)
     
-    # Create a mask
-    mask = dilated.copy()
-    mask[mask > 0] = 255
+    # Identify potential shaded areas
+    _, shaded_mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
+    
+    # Remove text and lines from the shaded mask
+    shaded_mask = cv2.bitwise_and(shaded_mask, cv2.bitwise_not(text_line_mask))
+    
+    # Apply morphological closing to clean up the shaded mask
+    kernel = np.ones((5,5), np.uint8)
+    shaded_mask = cv2.morphologyEx(shaded_mask, cv2.MORPH_CLOSE, kernel)
+    
+    # Enhance shaded areas
+    shaded_areas = cv2.bitwise_and(gray, shaded_mask)
+    shaded_areas = cv2.equalizeHist(shaded_areas)
     
     # Create result image
-    result = cv2.cvtColor(cv_image, cv2.COLOR_BGR2BGRA)
-    result[:, :, 3] = mask
+    result = cv_image.copy()
     
-    # Slightly reduce the alpha of the background
-    result[:, :, 3] = np.maximum(result[:, :, 3], 50)  # Set minimum alpha to 50
+    # Blend the enhanced shaded areas with the result
+    for c in range(3):  # For each color channel
+        result[:, :, c] = cv2.addWeighted(result[:, :, c], 1, shaded_areas, 0.3, 0)
+    
+    # Apply sharpening to the non-text areas
+    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+    sharpened = cv2.filter2D(result, -1, kernel)
+    
+    # Combine sharpened image with original text and lines
+    result = cv2.bitwise_and(sharpened, sharpened, mask=cv2.bitwise_not(text_line_mask))
+    result = cv2.add(result, cv2.bitwise_and(cv_image, cv_image, mask=text_line_mask))
+    
+    # Increase contrast slightly
+    alpha = 1.1  # Contrast control (1.0-3.0)
+    beta = 5    # Brightness control (0-100)
+    result = cv2.convertScaleAbs(result, alpha=alpha, beta=beta)
     
     # Convert back to PIL Image
-    enhanced_image = Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGRA2RGBA))
+    enhanced_image = Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
     
     return enhanced_image
 
@@ -166,4 +189,4 @@ if uploaded_file is not None:
             st.warning("저장할 이미지를 선택해주세요.")
 
 st.markdown("---")
-st.write("Made with ❤️ by Your Name")
+st.write("Made with ❤️ by Claude 3.5 Sonnet")
