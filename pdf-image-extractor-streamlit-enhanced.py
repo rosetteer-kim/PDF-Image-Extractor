@@ -107,7 +107,7 @@ def enhance_graph(image):
 st.set_page_config(layout="wide")
 st.title("PDF 이미지 추출 및 개선")
 
-uploaded_file = st.file_uploader("PDF 파일을 선택하세요", type="pdf")
+uploaded_file = st.file_uploader("한글(HWP)로 생성한 PDF 파일을 선택하세요", type="pdf")
 
 if uploaded_file is not None:
     st.write("파일이 업로드되었습니다:", uploaded_file.name)
