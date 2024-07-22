@@ -43,7 +43,7 @@ def image_to_base64(image):
     return base64.b64encode(buffered.getvalue()).decode()
 
 st.set_page_config(layout="wide")
-st.title("PDF 이미지 추출기")
+st.title("PDF 이미지 추출")
 
 uploaded_file = st.file_uploader("PDF 파일을 선택하세요", type="pdf")
 
