@@ -9,9 +9,106 @@ import cv2
 import numpy as np
 import zipfile
 
-# 기존의 함수들은 그대로 유지합니다 (extract_images_from_pdf, create_thumbnail, image_to_base64, enhance_graph)
+def extract_images_from_pdf(pdf_file):
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
+            tmp_pdf.write(pdf_file.getvalue())
+            tmp_pdf_path = tmp_pdf.name
 
-# ZIP 파일 생성 함수 추가
+        pdf_document = fitz.open(tmp_pdf_path)
+        images = []
+
+        for page_num in range(len(pdf_document)):
+            page = pdf_document[page_num]
+            page_images = page.get_images()
+
+            for img_index, img in enumerate(page_images):
+                xref = img[0]
+                base_image = pdf_document.extract_image(xref)
+                image_bytes = base_image["image"]
+                ext = base_image["ext"]
+
+                image = Image.open(io.BytesIO(image_bytes))
+                image_filename = f"page{page_num + 1}_img{img_index + 1}.{ext}"
+                
+                images.append((image_filename, image))
+
+        pdf_document.close()
+        os.unlink(tmp_pdf_path)
+        return images
+    except Exception as e:
+        st.error(f"PDF에서 이미지 추출 중 오류 발생: {str(e)}")
+        return []
+
+def create_thumbnail(image, size=(100, 100)):
+    image.thumbnail(size)
+    return image
+
+def image_to_base64(image):
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    return base64.b64encode(buffered.getvalue()).decode()
+
+def enhance_graph(image):
+    # Convert PIL Image to OpenCV format
+    cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
+    
+    # Apply slight Gaussian blur to reduce noise
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+    
+    # Apply adaptive thresholding to separate text and lines
+    thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                   cv2.THRESH_BINARY, 11, 2)
+    
+    # Create a mask for text and lines
+    text_line_mask = cv2.bitwise_not(thresh)
+    
+    # Dilate the text and line mask slightly to ensure full coverage
+    kernel = np.ones((2,2), np.uint8)
+    text_line_mask = cv2.dilate(text_line_mask, kernel, iterations=1)
+    
+    # Identify potential shaded areas
+    _, shaded_mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
+    
+    # Remove text and lines from the shaded mask
+    shaded_mask = cv2.bitwise_and(shaded_mask, cv2.bitwise_not(text_line_mask))
+    
+    # Apply morphological closing to clean up the shaded mask
+    kernel = np.ones((5,5), np.uint8)
+    shaded_mask = cv2.morphologyEx(shaded_mask, cv2.MORPH_CLOSE, kernel)
+    
+    # Enhance shaded areas
+    shaded_areas = cv2.bitwise_and(gray, shaded_mask)
+    shaded_areas = cv2.equalizeHist(shaded_areas)
+    
+    # Create result image
+    result = cv_image.copy()
+    
+    # Blend the enhanced shaded areas with the result
+    for c in range(3):  # For each color channel
+        result[:, :, c] = cv2.addWeighted(result[:, :, c], 1, shaded_areas, 0.3, 0)
+    
+    # Apply sharpening to the non-text areas
+    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+    sharpened = cv2.filter2D(result, -1, kernel)
+    
+    # Combine sharpened image with original text and lines
+    result = cv2.bitwise_and(sharpened, sharpened, mask=cv2.bitwise_not(text_line_mask))
+    result = cv2.add(result, cv2.bitwise_and(cv_image, cv_image, mask=text_line_mask))
+    
+    # Increase contrast slightly
+    alpha = 1.1  # Contrast control (1.0-3.0)
+    beta = 5    # Brightness control (0-100)
+    result = cv2.convertScaleAbs(result, alpha=alpha, beta=beta)
+    
+    # Convert back to PIL Image
+    enhanced_image = Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+    
+    return enhanced_image
+
 def create_zip_file(images):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
@@ -34,9 +131,11 @@ if uploaded_file is not None:
 
     if st.button("이미지 추출"):
         with st.spinner("이미지를 추출 중입니다..."):
-            st.session_state.extracted_images = extract_images_from_pdf(uploaded_file)
-        
-        st.success(f"이미지 추출이 완료되었습니다. 총 {len(st.session_state.extracted_images)}개의 이미지가 추출되었습니다.")
+            try:
+                st.session_state.extracted_images = extract_images_from_pdf(uploaded_file)
+                st.success(f"이미지 추출이 완료되었습니다. 총 {len(st.session_state.extracted_images)}개의 이미지가 추출되었습니다.")
+            except Exception as e:
+                st.error(f"이미지 추출 중 오류 발생: {str(e)}")
     
     if st.session_state.extracted_images:
         st.write("다운로드할 이미지를 선택하세요:")
