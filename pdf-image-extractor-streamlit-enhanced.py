@@ -105,7 +105,7 @@ def enhance_graph(image):
     return enhanced_image
 
 st.set_page_config(layout="wide")
-st.title("PDF 수학 그래프 이미지 추출기 및 개선기")
+st.title("PDF 이미지 추출 및 개선")
 
 uploaded_file = st.file_uploader("PDF 파일을 선택하세요", type="pdf")
 
